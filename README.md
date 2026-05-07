@@ -25,7 +25,7 @@ This bot uses Cloudflare Workers AI to analyze trading chart screenshots and pro
    - `CLOUDFLARE_ACCOUNT_ID`
    - `CLOUDFLARE_API_TOKEN`
    - `CHANNEL_USERNAME`
-   - `CLOUDFLARE_MODEL` optional, default is `@cf/unum/uform-gen2-qwen-500m`
+   - `CLOUDFLARE_MODEL` optional, default is `@cf/google/gemma-3-12b-it`
    - `ADMIN_USERNAME` optional, default is `admin`
    - `ADMIN_PASSWORD` strongly recommended
    - `FLASK_SECRET_KEY` strongly recommended

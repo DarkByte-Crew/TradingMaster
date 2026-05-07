@@ -1,4 +1,5 @@
 import hmac
+import base64
 import json
 import logging
 import os
@@ -32,7 +33,7 @@ DEFAULT_SETTINGS = {
     "channel_username": os.environ.get("CHANNEL_USERNAME", "").strip().lstrip("@"),
     "cloudflare_account_id": os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip(),
     "cloudflare_api_token": os.environ.get("CLOUDFLARE_API_TOKEN", "").strip(),
-    "cloudflare_model": os.environ.get("CLOUDFLARE_MODEL", "@cf/unum/uform-gen2-qwen-500m").strip() or "@cf/unum/uform-gen2-qwen-500m",
+    "cloudflare_model": os.environ.get("CLOUDFLARE_MODEL", "@cf/google/gemma-3-12b-it").strip() or "@cf/google/gemma-3-12b-it",
 }
 
 
@@ -93,7 +94,7 @@ class RuntimeStore:
             settings["channel_username"] = settings.get("channel_username", "").strip().lstrip("@")
             settings["cloudflare_account_id"] = settings.get("cloudflare_account_id", "").strip()
             settings["cloudflare_api_token"] = settings.get("cloudflare_api_token", "").strip()
-            settings["cloudflare_model"] = settings.get("cloudflare_model", "").strip() or "@cf/unum/uform-gen2-qwen-500m"
+            settings["cloudflare_model"] = settings.get("cloudflare_model", "").strip() or "@cf/google/gemma-3-12b-it"
             self._write_json(SETTINGS_PATH, settings)
             self.last_error = ""
             return settings
@@ -240,7 +241,7 @@ def update_settings_route():
         "channel_username": request.form.get("channel_username", "").strip().lstrip("@"),
         "cloudflare_account_id": request.form.get("cloudflare_account_id", "").strip(),
         "cloudflare_api_token": request.form.get("cloudflare_api_token", "").strip(),
-        "cloudflare_model": request.form.get("cloudflare_model", "@cf/unum/uform-gen2-qwen-500m").strip(),
+        "cloudflare_model": request.form.get("cloudflare_model", "@cf/google/gemma-3-12b-it").strip(),
     }
     store.update_settings(updated)
     flash("Settings updated successfully.", "success")
@@ -352,7 +353,7 @@ def analyze_image_with_ai(image_path: str) -> str | None:
     settings = store.get_settings()
     account_id = settings.get("cloudflare_account_id", "")
     api_token = settings.get("cloudflare_api_token", "")
-    model_name = settings.get("cloudflare_model", "@cf/unum/uform-gen2-qwen-500m")
+    model_name = settings.get("cloudflare_model", "@cf/google/gemma-3-12b-it")
 
     if not account_id or not api_token:
         message = "Cloudflare Account ID or API Token is not configured."
@@ -361,31 +362,53 @@ def analyze_image_with_ai(image_path: str) -> str | None:
         return None
 
     prompt = """
-আপনি একজন বিশেষজ্ঞ ট্রেডিং অ্যানালিস্ট। প্রদত্ত চার্ট ইমেজ বিস্তারিত বিশ্লেষণ করুন।
+You are an expert trading chart analyst.
+Analyze only what is visibly present in the chart image.
+Do not invent indicators, prices, timeframe, or patterns that are not clearly visible.
+If the image is unclear or not enough for a confident trade idea, return neutral.
 
-নিচের ফরম্যাটে শুধু data return করুন:
+Return ONLY valid JSON with this exact schema:
+{
+  "signal": "BUY" or "SELL" or "NEUTRAL",
+  "direction": "উপরে" or "নিচে" or "অনিশ্চিত",
+  "confidence": integer from 0 to 100,
+  "market_strength": "Strong Bullish" or "Strong Bearish" or "Sideways",
+  "entry_bias": "BUY" or "SELL" or "WAIT",
+  "analysis_points": [
+    "বাংলায় ১ম পয়েন্ট",
+    "বাংলায় ২য় পয়েন্ট",
+    "বাংলায় ৩য় পয়েন্ট",
+    "বাংলায় ৪র্থ পয়েন্ট",
+    "বাংলায় ৫ম পয়েন্ট"
+  ]
+}
 
-SIGNAL_TYPE: BUY or SELL or NEUTRAL
-DIRECTION: উপরে or নিচে or অনিশ্চিত
-CONFIDENCE: 0-100%
-MARKET_STRENGTH: Strong Bullish or Strong Bearish or Sideways
-ENTRY_BIAS: BUY or SELL or WAIT
-ANALYSIS_POINTS:
-- পয়েন্ট 1
-- পয়েন্ট 2
-- পয়েন্ট 3
-- পয়েন্ট 4
-- পয়েন্ট 5
-
-সব বিশ্লেষণ বাংলায় লিখুন।
+Rules:
+- analysis_points must be short, practical, and in Bengali
+- If the chart is noisy/unclear, use signal NEUTRAL and entry_bias WAIT
+- Never output markdown
+- Never output any text outside JSON
 """
     try:
         with open(image_path, "rb") as img_file:
             image_data = img_file.read()
+        image_base64 = base64.b64encode(image_data).decode("ascii")
         payload = {
-            "image": list(image_data),
-            "prompt": prompt,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a careful technical analyst. Be conservative when the chart is unclear.",
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+                    ],
+                },
+            ],
             "max_tokens": 700,
+            "temperature": 0.2,
         }
         req = urllib_request.Request(
             url=f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model_name}",
@@ -420,9 +443,36 @@ ANALYSIS_POINTS:
         return None
 
 
-def parse_gemini_response(raw_text: str) -> dict | None:
+def parse_ai_response(raw_text: str) -> dict | None:
     if not raw_text:
         return None
+
+    cleaned_text = raw_text.strip()
+    if cleaned_text.startswith("```"):
+        cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
+
+    json_candidate = cleaned_text
+    json_match = re.search(r"\{.*\}", cleaned_text, re.DOTALL)
+    if json_match:
+        json_candidate = json_match.group(0)
+
+    try:
+        parsed_json = json.loads(json_candidate)
+        points = parsed_json.get("analysis_points", [])
+        result = {
+            "signal": str(parsed_json.get("signal", "NEUTRAL")).upper(),
+            "direction": str(parsed_json.get("direction", "অনিশ্চিত")),
+            "confidence": f"{int(parsed_json.get('confidence', 0))}%",
+            "market_strength": str(parsed_json.get("market_strength", "Sideways")),
+            "entry_bias": str(parsed_json.get("entry_bias", "WAIT")).upper(),
+            "analysis_points": [str(point).strip() for point in points if str(point).strip()][:6],
+        }
+        if not result["analysis_points"]:
+            result["analysis_points"] = ["চার্ট থেকে নির্ভরযোগ্য detail পাওয়া যায়নি।"]
+        return result
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
 
     result = {
         "signal": "NEUTRAL",
@@ -524,7 +574,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await processing_msg.edit_text("AI analysis failed হয়েছে। Admin panel থেকে Cloudflare config check করুন।")
             return
 
-        parsed = parse_gemini_response(raw_analysis)
+        parsed = parse_ai_response(raw_analysis)
         final_text = format_final_message(parsed)
         await processing_msg.edit_text(final_text)
     except Exception as error:

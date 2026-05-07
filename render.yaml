@@ -16,7 +16,7 @@ services:
       - key: CLOUDFLARE_API_TOKEN
         sync: false
       - key: CLOUDFLARE_MODEL
-        value: "@cf/unum/uform-gen2-qwen-500m"
+        value: "@cf/google/gemma-3-12b-it"
       - key: ADMIN_USERNAME
         value: admin
       - key: ADMIN_PASSWORD
