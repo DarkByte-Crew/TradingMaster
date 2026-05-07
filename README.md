@@ -25,6 +25,9 @@ This bot uses Google Gemini Vision to analyze trading chart screenshots and prov
    - `GEMINI_API_KEY`
    - `CHANNEL_USERNAME`
    - `GEMINI_MODEL` optional, default is `gemini-1.5-flash`
+   - `ADMIN_USERNAME` optional, default is `admin`
+   - `ADMIN_PASSWORD` strongly recommended
+   - `FLASK_SECRET_KEY` strongly recommended
 5. Deploy the service.
 
 ## Important Notes
@@ -32,6 +35,8 @@ This bot uses Google Gemini Vision to analyze trading chart screenshots and prov
 - Add the bot to the channel before testing membership checks.
 - Channel membership verification works best when the bot is an admin in that channel.
 - Render runs this as a web service because the bot starts a small Flask healthcheck server on the assigned `PORT`.
+- Deploy URL open করলে admin login page দেখা যাবে. Login করার পর user count, user block/unblock/delete, Gemini API key change, আর channel change করা যাবে.
+- `storage/` folder local file-based. Render restart বা redeploy-এর পর data রাখতে চাইলে persistent disk লাগবে.
 
 ## Local Testing
 ```bash
