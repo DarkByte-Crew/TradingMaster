@@ -219,7 +219,7 @@
         <h2>Bot Settings</h2>
         {% if last_error %}
           <div class="warning" style="background:#fff0ef;border-color:#f2b8b5;color:#b42318;">
-            Last Gemini error:<br>
+            Last AI error:<br>
             <strong>{{ last_error }}</strong>
           </div>
         {% endif %}
@@ -227,11 +227,14 @@
           <label for="channel_username">Channel Username</label>
           <input id="channel_username" name="channel_username" value="{{ settings.channel_username }}" placeholder="TradingMaster">
 
-          <label for="gemini_api_key">Gemini API Key</label>
-          <input id="gemini_api_key" name="gemini_api_key" value="{{ settings.gemini_api_key }}" placeholder="AIza...">
+          <label for="cloudflare_account_id">Cloudflare Account ID</label>
+          <input id="cloudflare_account_id" name="cloudflare_account_id" value="{{ settings.cloudflare_account_id }}" placeholder="your-account-id">
 
-          <label for="gemini_model">Gemini Model</label>
-          <input id="gemini_model" name="gemini_model" value="{{ settings.gemini_model }}" placeholder="gemini-2.5-flash">
+          <label for="cloudflare_api_token">Cloudflare API Token</label>
+          <input id="cloudflare_api_token" name="cloudflare_api_token" value="{{ settings.cloudflare_api_token }}" placeholder="your-workers-ai-token">
+
+          <label for="cloudflare_model">Cloudflare Model</label>
+          <input id="cloudflare_model" name="cloudflare_model" value="{{ settings.cloudflare_model }}" placeholder="@cf/unum/uform-gen2-qwen-500m">
 
           <button class="primary" type="submit">Save Settings</button>
         </form>

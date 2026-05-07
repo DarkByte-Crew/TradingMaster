@@ -9,12 +9,14 @@ services:
         value: 3.11.9
       - key: BOT_TOKEN
         sync: false
-      - key: GEMINI_API_KEY
+      - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
       - key: CHANNEL_USERNAME
         sync: false
-      - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_MODEL
+        value: "@cf/unum/uform-gen2-qwen-500m"
       - key: ADMIN_USERNAME
         value: admin
       - key: ADMIN_PASSWORD

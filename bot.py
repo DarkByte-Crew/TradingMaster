@@ -7,10 +7,10 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock, Thread
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
-from google import genai
-from google.genai import types
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -30,8 +30,9 @@ FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "change-this-secret-key").
 
 DEFAULT_SETTINGS = {
     "channel_username": os.environ.get("CHANNEL_USERNAME", "").strip().lstrip("@"),
-    "gemini_api_key": os.environ.get("GEMINI_API_KEY", "").strip(),
-    "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash",
+    "cloudflare_account_id": os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip(),
+    "cloudflare_api_token": os.environ.get("CLOUDFLARE_API_TOKEN", "").strip(),
+    "cloudflare_model": os.environ.get("CLOUDFLARE_MODEL", "@cf/unum/uform-gen2-qwen-500m").strip() or "@cf/unum/uform-gen2-qwen-500m",
 }
 
 
@@ -42,8 +43,6 @@ def now_iso() -> str:
 class RuntimeStore:
     def __init__(self) -> None:
         self.lock = Lock()
-        self.client_cache = None
-        self.client_signature = None
         self.last_error = ""
         self._ensure_storage()
 
@@ -92,8 +91,9 @@ class RuntimeStore:
             settings = merged
             settings.update(updates)
             settings["channel_username"] = settings.get("channel_username", "").strip().lstrip("@")
-            settings["gemini_api_key"] = settings.get("gemini_api_key", "").strip()
-            settings["gemini_model"] = settings.get("gemini_model", "").strip() or "gemini-2.5-flash"
+            settings["cloudflare_account_id"] = settings.get("cloudflare_account_id", "").strip()
+            settings["cloudflare_api_token"] = settings.get("cloudflare_api_token", "").strip()
+            settings["cloudflare_model"] = settings.get("cloudflare_model", "").strip() or "@cf/unum/uform-gen2-qwen-500m"
             self._write_json(SETTINGS_PATH, settings)
             self.last_error = ""
             return settings
@@ -147,23 +147,6 @@ class RuntimeStore:
     def is_user_blocked(self, user_id: int) -> bool:
         user = self.get_user(user_id)
         return bool(user and user.get("blocked"))
-
-    def get_gemini_client(self):
-        settings = self.get_settings()
-        api_key = settings.get("gemini_api_key", "")
-
-        if not api_key:
-            return None
-
-        signature = (api_key,)
-        with self.lock:
-            if self.client_cache is not None and self.client_signature == signature:
-                return self.client_cache
-
-            self.client_cache = genai.Client(api_key=api_key)
-            self.client_signature = signature
-            return self.client_cache
-
 
 store = RuntimeStore()
 flask_app = Flask(__name__)
@@ -255,8 +238,9 @@ def update_settings_route():
 
     updated = {
         "channel_username": request.form.get("channel_username", "").strip().lstrip("@"),
-        "gemini_api_key": request.form.get("gemini_api_key", "").strip(),
-        "gemini_model": request.form.get("gemini_model", "gemini-2.5-flash").strip(),
+        "cloudflare_account_id": request.form.get("cloudflare_account_id", "").strip(),
+        "cloudflare_api_token": request.form.get("cloudflare_api_token", "").strip(),
+        "cloudflare_model": request.form.get("cloudflare_model", "@cf/unum/uform-gen2-qwen-500m").strip(),
     }
     store.update_settings(updated)
     flash("Settings updated successfully.", "success")
@@ -364,13 +348,14 @@ async def membership_check_callback(update: Update, context: ContextTypes.DEFAUL
         )
 
 
-def analyze_image_with_gemini(image_path: str) -> str | None:
-    client = store.get_gemini_client()
+def analyze_image_with_ai(image_path: str) -> str | None:
     settings = store.get_settings()
-    model_name = settings.get("gemini_model", "gemini-2.5-flash")
+    account_id = settings.get("cloudflare_account_id", "")
+    api_token = settings.get("cloudflare_api_token", "")
+    model_name = settings.get("cloudflare_model", "@cf/unum/uform-gen2-qwen-500m")
 
-    if client is None:
-        message = "Gemini API key is not configured."
+    if not account_id or not api_token:
+        message = "Cloudflare Account ID or API Token is not configured."
         store.set_last_error(message)
         logger.error(message)
         return None
@@ -397,19 +382,41 @@ ANALYSIS_POINTS:
     try:
         with open(image_path, "rb") as img_file:
             image_data = img_file.read()
-        response = client.models.generate_content(
-            model=model_name,
-            contents=[
-                prompt,
-                types.Part.from_bytes(data=image_data, mime_type="image/jpeg"),
-            ],
+        payload = {
+            "image": list(image_data),
+            "prompt": prompt,
+            "max_tokens": 700,
+        }
+        req = urllib_request.Request(
+            url=f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model_name}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
         )
+        with urllib_request.urlopen(req, timeout=90) as response:
+            body = response.read().decode("utf-8")
+        parsed_body = json.loads(body)
+        if not parsed_body.get("success", False):
+            error_message = json.dumps(parsed_body.get("errors", parsed_body), ensure_ascii=False)
+            store.set_last_error(error_message)
+            logger.error("Cloudflare AI error: %s", error_message)
+            return None
+        result = parsed_body.get("result", {})
         store.set_last_error("")
-        return getattr(response, "text", None)
+        return result.get("description") or result.get("response")
+    except urllib_error.HTTPError as error:
+        error_body = error.read().decode("utf-8", errors="replace")
+        error_message = f"HTTP {error.code}: {error_body}"
+        store.set_last_error(error_message)
+        logger.error("Cloudflare AI HTTP error: %s", error_message)
+        return None
     except Exception as error:
         error_message = str(error)
         store.set_last_error(error_message)
-        logger.error("Gemini API error: %s", error_message)
+        logger.error("Cloudflare AI error: %s", error_message)
         return None
 
 
@@ -512,9 +519,9 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tmp_path = tmp_file.name
 
     try:
-        raw_analysis = analyze_image_with_gemini(tmp_path)
+        raw_analysis = analyze_image_with_ai(tmp_path)
         if not raw_analysis:
-            await processing_msg.edit_text("AI analysis failed হয়েছে। Admin panel থেকে API/config check করুন।")
+            await processing_msg.edit_text("AI analysis failed হয়েছে। Admin panel থেকে Cloudflare config check করুন।")
             return
 
         parsed = parse_gemini_response(raw_analysis)

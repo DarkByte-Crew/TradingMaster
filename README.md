@@ -1,6 +1,6 @@
 # AI-Powered Telegram Trading Bot
 
-This bot uses Google Gemini Vision to analyze trading chart screenshots and provides buy/sell/neutral signals in Bengali.
+This bot uses Cloudflare Workers AI to analyze trading chart screenshots and provides buy/sell/neutral signals in Bengali.
 
 ## Features
 - Telegram channel force-join verification
@@ -11,7 +11,7 @@ This bot uses Google Gemini Vision to analyze trading chart screenshots and prov
 ## Prerequisites
 1. Telegram bot token from [@BotFather](https://t.me/BotFather)
 2. Public Telegram channel username without `@`
-3. Gemini API key from [Google AI Studio](https://aistudio.google.com/)
+3. Cloudflare account with Workers AI enabled
 
 ## Deployment on Render
 1. Push this repository to GitHub.
@@ -22,9 +22,10 @@ This bot uses Google Gemini Vision to analyze trading chart screenshots and prov
    - Python Version: `3.11.9`
 4. Add these environment variables in Render:
    - `BOT_TOKEN`
-   - `GEMINI_API_KEY`
+   - `CLOUDFLARE_ACCOUNT_ID`
+   - `CLOUDFLARE_API_TOKEN`
    - `CHANNEL_USERNAME`
-   - `GEMINI_MODEL` optional, default is `gemini-2.5-flash`
+   - `CLOUDFLARE_MODEL` optional, default is `@cf/unum/uform-gen2-qwen-500m`
    - `ADMIN_USERNAME` optional, default is `admin`
    - `ADMIN_PASSWORD` strongly recommended
    - `FLASK_SECRET_KEY` strongly recommended
@@ -35,14 +36,16 @@ This bot uses Google Gemini Vision to analyze trading chart screenshots and prov
 - Add the bot to the channel before testing membership checks.
 - Channel membership verification works best when the bot is an admin in that channel.
 - Render runs this as a web service because the bot starts a small Flask healthcheck server on the assigned `PORT`.
-- Deploy URL open করলে admin login page দেখা যাবে. Login করার পর user count, user block/unblock/delete, Gemini API key change, আর channel change করা যাবে.
+- Deploy URL open করলে admin login page দেখা যাবে. Login করার পর user count, user block/unblock/delete, Cloudflare API token/account/model change, আর channel change করা যাবে.
 - `storage/` folder local file-based. Render restart বা redeploy-এর পর data রাখতে চাইলে persistent disk লাগবে.
+- Cloudflare Workers AI free allocation is limited daily, not unlimited free usage.
 
 ## Local Testing
 ```bash
 pip install -r requirements.txt
 set BOT_TOKEN=your_bot_token
-set GEMINI_API_KEY=your_gemini_api_key
+set CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
+set CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
 set CHANNEL_USERNAME=your_channel_username
 python bot.py
 ```
