@@ -217,6 +217,12 @@
 
       <section class="card settings">
         <h2>Bot Settings</h2>
+        {% if last_error %}
+          <div class="warning" style="background:#fff0ef;border-color:#f2b8b5;color:#b42318;">
+            Last Gemini error:<br>
+            <strong>{{ last_error }}</strong>
+          </div>
+        {% endif %}
         <form method="post" action="{{ url_for('update_settings_route') }}">
           <label for="channel_username">Channel Username</label>
           <input id="channel_username" name="channel_username" value="{{ settings.channel_username }}" placeholder="TradingMaster">
@@ -225,7 +231,7 @@
           <input id="gemini_api_key" name="gemini_api_key" value="{{ settings.gemini_api_key }}" placeholder="AIza...">
 
           <label for="gemini_model">Gemini Model</label>
-          <input id="gemini_model" name="gemini_model" value="{{ settings.gemini_model }}" placeholder="gemini-1.5-flash">
+          <input id="gemini_model" name="gemini_model" value="{{ settings.gemini_model }}" placeholder="gemini-2.5-flash">
 
           <button class="primary" type="submit">Save Settings</button>
         </form>

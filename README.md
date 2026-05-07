@@ -24,7 +24,7 @@ This bot uses Google Gemini Vision to analyze trading chart screenshots and prov
    - `BOT_TOKEN`
    - `GEMINI_API_KEY`
    - `CHANNEL_USERNAME`
-   - `GEMINI_MODEL` optional, default is `gemini-1.5-flash`
+   - `GEMINI_MODEL` optional, default is `gemini-2.5-flash`
    - `ADMIN_USERNAME` optional, default is `admin`
    - `ADMIN_PASSWORD` strongly recommended
    - `FLASK_SECRET_KEY` strongly recommended

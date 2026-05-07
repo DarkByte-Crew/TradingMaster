@@ -9,7 +9,8 @@ from pathlib import Path
 from threading import Lock, Thread
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -30,7 +31,7 @@ FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "change-this-secret-key").
 DEFAULT_SETTINGS = {
     "channel_username": os.environ.get("CHANNEL_USERNAME", "").strip().lstrip("@"),
     "gemini_api_key": os.environ.get("GEMINI_API_KEY", "").strip(),
-    "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-1.5-flash").strip() or "gemini-1.5-flash",
+    "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash",
 }
 
 
@@ -41,8 +42,9 @@ def now_iso() -> str:
 class RuntimeStore:
     def __init__(self) -> None:
         self.lock = Lock()
-        self.model_cache = None
-        self.model_signature = None
+        self.client_cache = None
+        self.client_signature = None
+        self.last_error = ""
         self._ensure_storage()
 
     def _ensure_storage(self) -> None:
@@ -65,6 +67,14 @@ class RuntimeStore:
         with path.open("w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=2)
 
+    def set_last_error(self, message: str) -> None:
+        with self.lock:
+            self.last_error = message
+
+    def get_last_error(self) -> str:
+        with self.lock:
+            return self.last_error
+
     def get_settings(self) -> dict:
         with self.lock:
             settings = self._read_json(SETTINGS_PATH, DEFAULT_SETTINGS.copy())
@@ -83,8 +93,9 @@ class RuntimeStore:
             settings.update(updates)
             settings["channel_username"] = settings.get("channel_username", "").strip().lstrip("@")
             settings["gemini_api_key"] = settings.get("gemini_api_key", "").strip()
-            settings["gemini_model"] = settings.get("gemini_model", "").strip() or "gemini-1.5-flash"
+            settings["gemini_model"] = settings.get("gemini_model", "").strip() or "gemini-2.5-flash"
             self._write_json(SETTINGS_PATH, settings)
+            self.last_error = ""
             return settings
 
     def get_users(self) -> dict:
@@ -137,23 +148,21 @@ class RuntimeStore:
         user = self.get_user(user_id)
         return bool(user and user.get("blocked"))
 
-    def get_model(self):
+    def get_gemini_client(self):
         settings = self.get_settings()
         api_key = settings.get("gemini_api_key", "")
-        model_name = settings.get("gemini_model", "gemini-1.5-flash")
 
         if not api_key:
             return None
 
-        signature = (api_key, model_name)
+        signature = (api_key,)
         with self.lock:
-            if self.model_cache is not None and self.model_signature == signature:
-                return self.model_cache
+            if self.client_cache is not None and self.client_signature == signature:
+                return self.client_cache
 
-            genai.configure(api_key=api_key)
-            self.model_cache = genai.GenerativeModel(model_name)
-            self.model_signature = signature
-            return self.model_cache
+            self.client_cache = genai.Client(api_key=api_key)
+            self.client_signature = signature
+            return self.client_cache
 
 
 store = RuntimeStore()
@@ -234,6 +243,7 @@ def admin_dashboard():
         stats=stats,
         admin_username=ADMIN_USERNAME,
         default_password_warning=ADMIN_PASSWORD == "admin123",
+        last_error=store.get_last_error(),
     )
 
 
@@ -246,7 +256,7 @@ def update_settings_route():
     updated = {
         "channel_username": request.form.get("channel_username", "").strip().lstrip("@"),
         "gemini_api_key": request.form.get("gemini_api_key", "").strip(),
-        "gemini_model": request.form.get("gemini_model", "gemini-1.5-flash").strip(),
+        "gemini_model": request.form.get("gemini_model", "gemini-2.5-flash").strip(),
     }
     store.update_settings(updated)
     flash("Settings updated successfully.", "success")
@@ -355,9 +365,14 @@ async def membership_check_callback(update: Update, context: ContextTypes.DEFAUL
 
 
 def analyze_image_with_gemini(image_path: str) -> str | None:
-    model = store.get_model()
-    if model is None:
-        logger.error("Gemini model is not configured")
+    client = store.get_gemini_client()
+    settings = store.get_settings()
+    model_name = settings.get("gemini_model", "gemini-2.5-flash")
+
+    if client is None:
+        message = "Gemini API key is not configured."
+        store.set_last_error(message)
+        logger.error(message)
         return None
 
     prompt = """
@@ -382,10 +397,19 @@ ANALYSIS_POINTS:
     try:
         with open(image_path, "rb") as img_file:
             image_data = img_file.read()
-        response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_data}])
+        response = client.models.generate_content(
+            model=model_name,
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=image_data, mime_type="image/jpeg"),
+            ],
+        )
+        store.set_last_error("")
         return getattr(response, "text", None)
     except Exception as error:
-        logger.error("Gemini API error: %s", error)
+        error_message = str(error)
+        store.set_last_error(error_message)
+        logger.error("Gemini API error: %s", error_message)
         return None
 
 
