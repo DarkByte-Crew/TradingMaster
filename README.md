@@ -19,6 +19,7 @@ This bot uses Google Gemini Vision to analyze trading chart screenshots and prov
 3. Render can use the included `render.yaml`, or you can set the same values manually:
    - Build Command: `pip install -r requirements.txt`
    - Start Command: `python -u bot.py`
+   - Python Version: `3.11.9`
 4. Add these environment variables in Render:
    - `BOT_TOKEN`
    - `GEMINI_API_KEY`
